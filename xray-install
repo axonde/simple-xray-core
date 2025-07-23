@@ -1,37 +1,43 @@
 #!/bin/bash
 
-# Конфигурационные пути
-CONFIG_FILE="/usr/local/etc/xray/config.json"
-KEYS_FILE="/usr/local/etc/xray/.keys"
+# Конфигурационные параметры
+BIN_PATH="/usr/local/bin/ax-xray"
+CONFIG_DIR="/usr/local/etc/xray"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+KEYS_FILE="$CONFIG_DIR/.keys"
 
-# Основная функция установки
+# Функция установки Xray
 install_xray() {
-    echo "Начало установки Xray-core..."
-    apt update
-    apt install qrencode curl jq -y -q
+    echo "Установка Xray-core и настройка системы..."
 
-    # Включаем BBR
+    # Обновление системы
+    apt update
+    apt install -y qrencode curl jq
+
+    # Включение BBR
     if ! grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
-        echo "Включение BBR..."
+        echo "Включение оптимизации BBR..."
         echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
         echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
         sysctl -p
-    else
-        echo "BBR уже включен"
     fi
 
-    # Установка Xray-core
+    # Установка Xray
     echo "Установка Xray-core..."
     bash -c "$(curl -4 -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
+    # Создание директории конфигурации
+    mkdir -p "$CONFIG_DIR"
+
     # Генерация ключей
+    echo "Генерация криптографических ключей..."
     [ -f "$KEYS_FILE" ] && rm "$KEYS_FILE"
     touch "$KEYS_FILE"
     echo "uuid: $(xray uuid)" >> "$KEYS_FILE"
     xray x25519 >> "$KEYS_FILE"
     echo "shortsid: $(openssl rand -hex 8)" >> "$KEYS_FILE"
 
-    # Загрузка ключей в переменные
+    # Загрузка ключей
     uuid=$(awk -F': ' '/uuid/{print $2}' "$KEYS_FILE")
     privatkey=$(awk -F': ' '/Private key/{print $2}' "$KEYS_FILE")
     shortsid=$(awk -F': ' '/shortsid/{print $2}' "$KEYS_FILE")
@@ -61,9 +67,9 @@ install_xray() {
                 "security": "reality",
                 "realitySettings": {
                     "show": false,
-                    "dest": "github.com:443",
+                    "dest": "cloudflare.com:443",
                     "xver": 0,
-                    "serverNames": ["github.com", "www.github.com"],
+                    "serverNames": ["cloudflare.com", "www.cloudflare.com"],
                     "privateKey": "$privatkey",
                     "minClientVer": "",
                     "maxClientVer": "",
@@ -87,24 +93,22 @@ install_xray() {
 }
 EOF
 
+    # Перезапуск Xray
     systemctl restart xray
     echo "Xray-core успешно установлен и запущен!"
 }
 
-# Функция для получения ссылки основного пользователя
-main_user() {
-    [ ! -f "$KEYS_FILE" ] && { echo "Ошибка: файл ключей не найден"; exit 1; }
+# Функция создания управляющей утилиты
+create_ax_xray() {
+    echo "Создание управляющей утилиты ax-xray..."
 
-    protocol=$(jq -r '.inbounds[0].protocol' "$CONFIG_FILE")
-    port=$(jq -r '.inbounds[0].port' "$CONFIG_FILE")
-    uuid=$(awk -F': ' '/uuid/{print $2}' "$KEYS_FILE")
-    pbk=$(awk -F': ' '/Public key/{print $2}' "$KEYS_FILE")
-    sid=$(awk -F': ' '/shortsid/{print $2}' "$KEYS_FILE")
-    sni=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$CONFIG_FILE")
-    ip=$(curl -4 -s icanhazip.com || echo "ВАШ_IP")
+    cat << 'EOF' > "$BIN_PATH"
+#!/bin/bash
 
-    generate_link "$protocol" "$uuid" "$ip" "$port" "$sni" "$pbk" "$sid" "main"
-}
+# Конфигурационные параметры
+CONFIG_DIR="/usr/local/etc/xray"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+KEYS_FILE="$CONFIG_DIR/.keys"
 
 # Функция генерации ссылки
 generate_link() {
@@ -117,16 +121,31 @@ generate_link() {
     echo "$link" | qrencode -t ansiutf8
 }
 
-# Функция добавления пользователя
+# Основной пользователь
+main_user() {
+    [ -f "$KEYS_FILE" ] || { echo "Файл ключей не найден"; exit 1; }
+
+    protocol=$(jq -r '.inbounds[0].protocol' "$CONFIG_FILE")
+    port=$(jq -r '.inbounds[0].port' "$CONFIG_FILE")
+    uuid=$(awk -F': ' '/uuid/{print $2}' "$KEYS_FILE")
+    pbk=$(awk -F': ' '/Public key/{print $2}' "$KEYS_FILE")
+    sid=$(awk -F': ' '/shortsid/{print $2}' "$KEYS_FILE")
+    sni=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$CONFIG_FILE")
+    ip=$(curl -4 -s icanhazip.com || echo "ВАШ_IP")
+
+    generate_link "$protocol" "$uuid" "$ip" "$port" "$sni" "$pbk" "$sid" "main"
+}
+
+# Добавление пользователя
 add_user() {
-    [ ! -f "$CONFIG_FILE" ] && { echo "Ошибка: конфиг Xray не найден"; exit 1; }
+    [ -f "$CONFIG_FILE" ] || { echo "Конфигурация не найдена"; exit 1; }
 
-    read -p "Введите ник пользователя: " username
-    [[ -z "$username" || "$username" =~ [[:space:]] ]] && { echo "Некорректный ник (не должно быть пробелов)"; exit 1; }
+    read -p "Введите username пользователя: " username
+    [[ -z "$username" || "$username" =~ [[:space:]] ]] && { echo "Некорректный username"; exit 1; }
 
-    # Проверка существования пользователя
+    # Проверка существования
     if jq -e --arg username "$username" '.inbounds[0].settings.clients[] | select(.username == $username)' "$CONFIG_FILE" >/dev/null; then
-        echo "Пользователь уже существует!"
+        echo "Пользователь $username уже существует!"
         exit 1
     fi
 
@@ -139,7 +158,7 @@ add_user() {
     systemctl restart xray
     echo "Пользователь $username успешно добавлен!"
 
-    # Генерация ссылки для нового пользователя
+    # Генерация ссылки
     protocol=$(jq -r '.inbounds[0].protocol' "$CONFIG_FILE")
     port=$(jq -r '.inbounds[0].port' "$CONFIG_FILE")
     pbk=$(awk -F': ' '/Public key/{print $2}' "$KEYS_FILE")
@@ -150,15 +169,15 @@ add_user() {
     generate_link "$protocol" "$uuid_new" "$ip" "$port" "$sni" "$pbk" "$sid" "$username"
 }
 
-# Функция удаления пользователя
+# Удаление пользователя
 remove_user() {
+    [ -f "$CONFIG_FILE" ] || { echo "Конфигурация не найдена"; exit 1; }
+
     usernames=($(jq -r '.inbounds[0].settings.clients[].username' "$CONFIG_FILE"))
-    [[ ${#usernames[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 1; }
+    [ ${#usernames[@]} -eq 0 ] && { echo "Нет пользователей"; exit 1; }
 
     echo "Список пользователей:"
-    for i in "${!usernames[@]}"; do
-        echo "$((i+1)). ${usernames[i]}"
-    done
+    for i in "${!usernames[@]}"; do echo "$((i+1)). ${usernames[i]}"; done
 
     read -p "Выберите номер для удаления: " num
     [[ ! "$num" =~ ^[0-9]+$ || $num -lt 1 || $num -gt ${#usernames[@]} ]] && { echo "Некорректный выбор"; exit 1; }
@@ -172,21 +191,21 @@ remove_user() {
     echo "Пользователь $username удалён!"
 }
 
-# Функция генерации ссылки для выбранного пользователя
-generate_user_link() {
+# Генерация ссылки пользователя
+generate_user() {
+    [ -f "$CONFIG_FILE" ] || { echo "Конфигурация не найдена"; exit 1; }
+
     usernames=($(jq -r '.inbounds[0].settings.clients[].username' "$CONFIG_FILE"))
-    [[ ${#usernames[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 1; }
+    [ ${#usernames[@]} -eq 0 ] && { echo "Нет пользователей"; exit 1; }
 
     echo "Список пользователей:"
-    for i in "${!usernames[@]}"; do
-        echo "$((i+1)). ${usernames[i]}"
-    done
+    for i in "${!usernames[@]}"; do echo "$((i+1)). ${usernames[i]}"; done
 
     read -p "Выберите пользователя: " num
     [[ ! "$num" =~ ^[0-9]+$ || $num -lt 1 || $num -gt ${#usernames[@]} ]] && { echo "Некорректный выбор"; exit 1; }
 
     username=${usernames[$((num-1))]}
-    user_data=$(jq --arg username "$usernamee" '.inbounds[0].settings.clients[] | select(.username == $username)' "$CONFIG_FILE")
+    user_data=$(jq --arg username "$username" '.inbounds[0].settings.clients[] | select(.username == $username)' "$CONFIG_FILE")
     uuid=$(jq -r '.id' <<< "$user_data")
 
     protocol=$(jq -r '.inbounds[0].protocol' "$CONFIG_FILE")
@@ -199,40 +218,139 @@ generate_user_link() {
     generate_link "$protocol" "$uuid" "$ip" "$port" "$sni" "$pbk" "$sid" "$username"
 }
 
-# Функция списка пользователей
+# Список пользователей
 list_users() {
+    [ -f "$CONFIG_FILE" ] || { echo "Конфигурация не найдена"; exit 1; }
+
     usernames=($(jq -r '.inbounds[0].settings.clients[].username' "$CONFIG_FILE"))
-    [[ ${#usernames[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 0; }
+    [ ${#usernames[@]} -eq 0 ] && { echo "Нет пользователей"; exit 0; }
 
     echo "Список пользователей:"
-    for i in "${!usernames[@]}"; do
-        echo "$((i+1)). ${usernames[i]}"
-    done
+    for i in "${!usernames[@]}"; do echo "$((i+1)). ${usernames[i]}"; done
 }
 
-# Функция справки
+# Статус сервиса
+service_status() {
+    systemctl status xray --no-pager
+}
+
+# Перезапуск сервиса
+restart_service() {
+    systemctl restart xray
+    echo "Сервис Xray перезапущен"
+}
+
+# Просмотр логов
+view_logs() {
+    journalctl -u xray -n 50 --no-pager
+}
+
+# Помощь
 show_help() {
-    echo "Использование: $0 [ФЛАГ]"
-    echo "Флаги:"
-    echo "  -i, --install    : Установка Xray-core"
-    echo "  -m, --main       : Ссылка основного пользователя"
-    echo "  -a, --add        : Добавить нового пользователя"
-    echo "  -r, --remove     : Удалить пользователя"
-    echo "  -g, --generate   : Сгенерировать ссылку для пользователя"
-    echo "  -l, --list       : Список пользователей"
-    echo "  -h, --help       : Показать эту справку"
-    echo ""
-    echo "Управление сервисом: systemctl restart|status xray"
-    echo "Конфиг: $CONFIG_FILE"
+    echo "Использование: ax-xray [КОМАНДА]"
+    echo
+    echo "Команды:"
+    echo "  install         - Первоначальная установка Xray"
+    echo "  main            - Ссылка основного пользователя"
+    echo "  add             - Добавить пользователя"
+    echo "  remove          - Удалить пользователя"
+    echo "  generate        - Сгенерировать ссылку для пользователя"
+    echo "  list            - Список пользователей"
+    echo "  status          - Статус сервиса Xray"
+    echo "  restart         - Перезапустить Xray"
+    echo "  logs            - Просмотр логов"
+    echo "  help            - Показать эту справку"
+    echo
+    echo "Примеры:"
+    echo "  ax-xray install   # Установка сервера"
+    echo "  ax-xray add       # Добавить нового пользователя"
+    echo "  ax-xray main      # Получить ссылку основного пользователя"
 }
 
-# Парсинг аргументов
+# Проверка прав
+check_root() {
+    [ "$(id -u)" -ne 0 ] && { 
+        echo "Эта команда требует прав root. Используйте sudo."
+        exit 1
+    }
+}
+
+# Основной код утилиты
 case "$1" in
-    -i|--install) install_xray ;;
-    -m|--main) main_user ;;
-    -a|--add) add_user ;;
-    -r|--remove) remove_user ;;
-    -g|--generate) generate_user_link ;;
-    -l|--list) list_users ;;
-    -h|--help|*) show_help ;;
+    install)
+        check_root
+        echo "Установка Xray-core..."
+        # Вызов функции установки из внешнего скрипта
+        /usr/local/bin/ax-xray-installer install
+        ;;
+    main)
+        main_user
+        ;;
+    add)
+        check_root
+        add_user
+        ;;
+    remove)
+        check_root
+        remove_user
+        ;;
+    generate)
+        generate_user
+        ;;
+    list)
+        list_users
+        ;;
+    status)
+        service_status
+        ;;
+    restart)
+        check_root
+        restart_service
+        ;;
+    logs)
+        view_logs
+        ;;
+    help|--help|-h|*)
+        show_help
+        ;;
 esac
+EOF
+
+    # Делаем утилиту исполняемой
+    chmod +x "$BIN_PATH"
+    echo "Утилита ax-xray успешно создана в $BIN_PATH"
+    echo "Для использования: ax-xray [команда]"
+}
+
+# Главная функция установщика
+main_installer() {
+    # Установка Xray
+    install_xray
+
+    # Создание управляющей утилиты
+    create_ax_xray
+
+    # Создаем отдельный установщик для поддержки обновлений
+    cat << 'EOF' > /usr/local/bin/ax-xray-installer
+#!/bin/bash
+# Внутренний установщик для поддержки обновлений
+[ "$1" = "install" ] && {
+    # Код функции install_xray из основного скрипта
+    # ... (полный код функции install_xray)
+}
+EOF
+    cat <(declare -f install_xray) <(echo 'install_xray "$@"') > /usr/local/bin/ax-xray-installer
+    chmod +x /usr/local/bin/ax-xray-installer
+
+    echo "Установка завершена!"
+    echo "Используйте 'ax-xray help' для просмотра команд управления"
+}
+
+# Проверка прав root
+[ "$(id -u)" -ne 0 ] && {
+    echo "Скрипт требует запуска с правами root. Используйте sudo."
+    exit 1
+}
+
+# Запуск установки
+main_installer

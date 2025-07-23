@@ -2,11 +2,6 @@
 
 Вы все знакомы с такими панелями управления, как 3x-ui, Marzban и другими. Все эти панели являются всего лишь графическими надстройками над ядром X-ray и служат для удобного управления им, а также для создания подключений и настроек. Ядро же может работать без всяких панелей и управляться полностью через терминал. Основное преимущество использования «голого» ядра заключается в том, что вам не нужно заморачиваться с доменами и TLS-сертификатами. Само ядро можно установить и администрировать вручную с помощью официальной документации. Этот скрипт предназначен для упрощения этой задачи: он автоматически установит ядро на сервер, создаст конфигурационные файлы и несколько исполняемых файлов для удобного управления пользователями.
 
-## VPS для панели
-
-Для установки панели нам понадобится VPS-сервер. Приобрести его можно в [ishosting](https://bit.ly/3rOqvPE).  
-В сервисе доступны более 36 локаций. Если вам не нужна какая-то конкретная страна, выбирайте ту, что ближе к вам.
-
 ## Системные требования
 
 - 1 CPU  
@@ -19,7 +14,7 @@
 Скрипт создавался и тестировался под ОС Ubuntu 22 x64 и Ubuntu 24 x64. На других ОС может работать некорректно. Чтобы скачать и запустить скрипт, используйте эту команду:
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/ServerTechnologies/simple-xray-core/refs/heads/main/xray-install | bash
+wget -qO- https://github.com/axonde/simple-xray-core/blob/main/xray-install | bash
 ```
 
 ## Команды для управления пользователями
@@ -27,37 +22,36 @@ wget -qO- https://raw.githubusercontent.com/ServerTechnologies/simple-xray-core/
 **Вывести список всех клиентов:**
 
 ```sh
-userlist
+ax-xray --list [-l]
 ```
 
-**Вывести ссылку и QR-код для подключения основного пользователя:**
+**Вывести ссылку и QR-код для подключения основного пользователя(админа):**
 
 ```sh
-mainuser
+ax-xray --main [-m]
 ```
 
 **Создать нового пользователя:**
 
 ```sh
-newuser
+ax-xray --add [-a]
 ```
 
 **Удалить пользователя:**
 
 ```sh
-rmuser
+ax-xray --remove [-r]
 ```
 
 **Создать ссылку для подключения:**
 
 ```sh
-sharelink
+ax-xray --generate [-g]
 ```
 
-В домашней папке пользователя будет создан файл `help` — в нём содержатся подсказки с описанием команд. Посмотреть его можно с помощью команды (нужно находиться в домашней папке пользователя):
-
+**Отобразить помощь:**
 ```sh
-cat help
+ax-xray
 ```
 
 ## Полезные ссылки
@@ -81,7 +75,7 @@ cat help
 
 **iOS & macOS arm64**
 
-- [Streisand](https://apps.apple.com/app/streisand/id6450534064)  
+- [Streisand](https://apps.apple.com/app/streisand/id6450534064)  (perfect!)
 - [Happ](https://apps.apple.com/app/happ-proxy-utility/id6504287215)  
 - [OneXray](https://github.com/OneXray/OneXray)  
 
@@ -98,14 +92,8 @@ cat help
 - [v2rayA](https://github.com/v2rayA/v2rayA)  
 - [Furious](https://github.com/LorenEteval/Furious)  
 
-## Если вдруг нужно удалить, то воспользуйтесь этими командами:
+## Если вдруг нужно удалить, то воспользуйтесь этими командами (+ грубая переустановка):
 ```sh
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ remove
-rm /usr/local/etc/xray/config.json
-rm /usr/local/etc/xray/.keys
-rm /usr/local/bin/userlist
-rm /usr/local/bin/mainuser
-rm /usr/local/bin/newuser
-rm /usr/local/bin/rmuser
-rm /usr/local/bin/sharelink
+rm -rf /usr/local/etc/xray
 ```
