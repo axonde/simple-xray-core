@@ -250,7 +250,6 @@ show_help() {
     echo "Использование: ax-xray [КОМАНДА]"
     echo
     echo "Команды:"
-    echo "  install         - Первоначальная установка Xray"
     echo "  main            - Ссылка основного пользователя"
     echo "  add             - Добавить пользователя"
     echo "  remove          - Удалить пользователя"
@@ -262,7 +261,6 @@ show_help() {
     echo "  help            - Показать эту справку"
     echo
     echo "Примеры:"
-    echo "  ax-xray install   # Установка сервера"
     echo "  ax-xray add       # Добавить нового пользователя"
     echo "  ax-xray main      # Получить ссылку основного пользователя"
 }
@@ -277,12 +275,6 @@ check_root() {
 
 # Основной код утилиты
 case "$1" in
-    install)
-        check_root
-        echo "Установка Xray-core..."
-        # Вызов функции установки из внешнего скрипта
-        /usr/local/bin/ax-xray-installer install
-        ;;
     main)
         main_user
         ;;
