@@ -53,7 +53,7 @@ install_xray() {
             "port": 443,
             "protocol": "vless",
             "settings": {
-                "clients": [{"email": "main", "id": "$uuid", "flow": "xtls-rprx-vision"}],
+                "clients": [{"username": "main", "id": "$uuid", "flow": "xtls-rprx-vision"}],
                 "decryption": "none"
             },
             "streamSettings": {
@@ -108,10 +108,10 @@ main_user() {
 
 # Функция генерации ссылки
 generate_link() {
-    local protocol=$1 uuid=$2 ip=$3 port=$4 sni=$5 pbk=$6 sid=$7 email=$8
-    link="$protocol://$uuid@$ip:$port?security=reality&sni=$sni&fp=firefox&pbk=$pbk&sid=$sid&spx=/&type=tcp&flow=xtls-rprx-vision&encryption=none#$email"
+    local protocol=$1 uuid=$2 ip=$3 port=$4 sni=$5 pbk=$6 sid=$7 username=$8
+    link="$protocol://$uuid@$ip:$port?security=reality&sni=$sni&fp=firefox&pbk=$pbk&sid=$sid&spx=/&type=tcp&flow=xtls-rprx-vision&encryption=none#$username"
 
-    echo -e "\nСсылка для $email:"
+    echo -e "\nСсылка для $username:"
     echo "$link"
     echo -e "\nQR-код:"
     echo "$link" | qrencode -t ansiutf8
@@ -121,23 +121,23 @@ generate_link() {
 add_user() {
     [ ! -f "$CONFIG_FILE" ] && { echo "Ошибка: конфиг Xray не найден"; exit 1; }
 
-    read -p "Введите email пользователя: " email
-    [[ -z "$email" || "$email" =~ [[:space:]] ]] && { echo "Некорректный email"; exit 1; }
+    read -p "Введите ник пользователя: " username
+    [[ -z "$username" || "$username" =~ [[:space:]] ]] && { echo "Некорректный ник (не должно быть пробелов)"; exit 1; }
 
     # Проверка существования пользователя
-    if jq -e --arg email "$email" '.inbounds[0].settings.clients[] | select(.email == $email)' "$CONFIG_FILE" >/dev/null; then
+    if jq -e --arg username "$username" '.inbounds[0].settings.clients[] | select(.username == $username)' "$CONFIG_FILE" >/dev/null; then
         echo "Пользователь уже существует!"
         exit 1
     fi
 
     # Добавление пользователя
     uuid_new=$(xray uuid)
-    jq --arg email "$email" --arg uuid "$uuid_new" \
-        '.inbounds[0].settings.clients += [{"email": $email, "id": $uuid, "flow": "xtls-rprx-vision"}]' \
+    jq --arg username "$username" --arg uuid "$uuid_new" \
+        '.inbounds[0].settings.clients += [{"username": $username, "id": $uuid, "flow": "xtls-rprx-vision"}]' \
         "$CONFIG_FILE" > tmp.json && mv tmp.json "$CONFIG_FILE"
 
     systemctl restart xray
-    echo "Пользователь $email успешно добавлен!"
+    echo "Пользователь $username успешно добавлен!"
 
     # Генерация ссылки для нового пользователя
     protocol=$(jq -r '.inbounds[0].protocol' "$CONFIG_FILE")
@@ -147,46 +147,46 @@ add_user() {
     sni=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$CONFIG_FILE")
     ip=$(curl -4 -s icanhazip.com || echo "ВАШ_IP")
 
-    generate_link "$protocol" "$uuid_new" "$ip" "$port" "$sni" "$pbk" "$sid" "$email"
+    generate_link "$protocol" "$uuid_new" "$ip" "$port" "$sni" "$pbk" "$sid" "$username"
 }
 
 # Функция удаления пользователя
 remove_user() {
-    emails=($(jq -r '.inbounds[0].settings.clients[].email' "$CONFIG_FILE"))
-    [[ ${#emails[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 1; }
+    usernames=($(jq -r '.inbounds[0].settings.clients[].username' "$CONFIG_FILE"))
+    [[ ${#usernames[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 1; }
 
     echo "Список пользователей:"
-    for i in "${!emails[@]}"; do
-        echo "$((i+1)). ${emails[i]}"
+    for i in "${!usernames[@]}"; do
+        echo "$((i+1)). ${usernames[i]}"
     done
 
     read -p "Выберите номер для удаления: " num
-    [[ ! "$num" =~ ^[0-9]+$ || $num -lt 1 || $num -gt ${#emails[@]} ]] && { echo "Некорректный выбор"; exit 1; }
+    [[ ! "$num" =~ ^[0-9]+$ || $num -lt 1 || $num -gt ${#usernames[@]} ]] && { echo "Некорректный выбор"; exit 1; }
 
-    email=${emails[$((num-1))]}
-    jq --arg email "$email" \
-        'del(.inbounds[0].settings.clients[] | select(.email == $email))' \
+    username=${usernames[$((num-1))]}
+    jq --arg username "$username" \
+        'del(.inbounds[0].settings.clients[] | select(.username == $username))' \
         "$CONFIG_FILE" > tmp.json && mv tmp.json "$CONFIG_FILE"
 
     systemctl restart xray
-    echo "Пользователь $email удалён!"
+    echo "Пользователь $username удалён!"
 }
 
 # Функция генерации ссылки для выбранного пользователя
 generate_user_link() {
-    emails=($(jq -r '.inbounds[0].settings.clients[].email' "$CONFIG_FILE"))
-    [[ ${#emails[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 1; }
+    usernames=($(jq -r '.inbounds[0].settings.clients[].username' "$CONFIG_FILE"))
+    [[ ${#usernames[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 1; }
 
     echo "Список пользователей:"
-    for i in "${!emails[@]}"; do
-        echo "$((i+1)). ${emails[i]}"
+    for i in "${!usernames[@]}"; do
+        echo "$((i+1)). ${usernames[i]}"
     done
 
     read -p "Выберите пользователя: " num
-    [[ ! "$num" =~ ^[0-9]+$ || $num -lt 1 || $num -gt ${#emails[@]} ]] && { echo "Некорректный выбор"; exit 1; }
+    [[ ! "$num" =~ ^[0-9]+$ || $num -lt 1 || $num -gt ${#usernames[@]} ]] && { echo "Некорректный выбор"; exit 1; }
 
-    email=${emails[$((num-1))]}
-    user_data=$(jq --arg email "$email" '.inbounds[0].settings.clients[] | select(.email == $email)' "$CONFIG_FILE")
+    username=${usernames[$((num-1))]}
+    user_data=$(jq --arg username "$usernamee" '.inbounds[0].settings.clients[] | select(.username == $username)' "$CONFIG_FILE")
     uuid=$(jq -r '.id' <<< "$user_data")
 
     protocol=$(jq -r '.inbounds[0].protocol' "$CONFIG_FILE")
@@ -196,17 +196,17 @@ generate_user_link() {
     sni=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$CONFIG_FILE")
     ip=$(curl -4 -s icanhazip.com || echo "ВАШ_IP")
 
-    generate_link "$protocol" "$uuid" "$ip" "$port" "$sni" "$pbk" "$sid" "$email"
+    generate_link "$protocol" "$uuid" "$ip" "$port" "$sni" "$pbk" "$sid" "$username"
 }
 
 # Функция списка пользователей
 list_users() {
-    emails=($(jq -r '.inbounds[0].settings.clients[].email' "$CONFIG_FILE"))
-    [[ ${#emails[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 0; }
+    usernames=($(jq -r '.inbounds[0].settings.clients[].username' "$CONFIG_FILE"))
+    [[ ${#usernames[@]} -eq 0 ]] && { echo "Нет пользователей"; exit 0; }
 
     echo "Список пользователей:"
-    for i in "${!emails[@]}"; do
-        echo "$((i+1)). ${emails[i]}"
+    for i in "${!usernames[@]}"; do
+        echo "$((i+1)). ${usernames[i]}"
     done
 }
 
